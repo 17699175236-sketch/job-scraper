@@ -12,8 +12,9 @@ location: ""
 
 # 数据源开关
 sources:
-  indeed: true       # Indeed RSS（全球覆盖广，无需 API Key）
-  remoteok: true     # RemoteOK（专注远程技术岗）
+  indeed: true       # Indeed RSS（可能被 Cloudflare 拦截，GHA 环境下可能可行）
+  remoteok: true     # RemoteOK API（专注远程技术岗）
+  jobicy: true       # Jobicy API（远程岗位聚合，免费）
   # 未来可扩展更多来源
 
 # 每个来源最多拉取条数

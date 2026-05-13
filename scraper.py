@@ -106,29 +106,48 @@ def _clean_html(text: str) -> str:
 # 数据源
 # ════════════════════════════════════════════════════════════════
 
-def fetch_indeed(keywords: list[str], location: str, limit: int = 25) -> list[Job]:
-    """从 Indeed RSS 拉取岗位"""
-    query = "+".join([f'"{kw}"' for kw in keywords])
-    url = f"https://rss.indeed.com/rss?q={query}&limit={limit}"
-    if location:
-        url += f"&l={location}"
+def _matches_keywords(text: str, keywords: list[str]) -> bool:
+    """检查文本是否匹配任一关键词（支持短语匹配和单词匹配）"""
+    text_lower = text.lower()
+    for kw in keywords:
+        kw = kw.lower().strip()
+        if kw in text_lower:
+            return True
+        # 如果关键词是多个单词，也尝试分别匹配每个单词
+        words = kw.split()
+        if len(words) > 1 and all(w in text_lower for w in words):
+            return True
+    return False
 
-    print(f"  Indeed: {url}")
-    try:
-        resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
-        jobs = parse_rss(resp.text, "Indeed")
-        print(f"  ✓ 获取 {len(jobs)} 个岗位")
-        return jobs
-    except requests.RequestException as e:
-        print(f"  ✗ Indeed 请求失败: {e}")
-        return []
+
+def fetch_indeed(keywords: list[str], location: str, limit: int = 25) -> list[Job]:
+    """从 Indeed RSS 拉取岗位（可能被 Cloudflare 拦截）"""
+    query = "+".join(keywords)
+    urls = [
+        f"https://rss.indeed.com/rss?q={query}&limit={limit}",
+        f"https://www.indeed.com/rss?q={query}&limit={limit}",
+        f"https://www.indeed.co.uk/rss?q={query}&limit={limit}",
+    ]
+    if location:
+        urls = [f"{u}&l={location}" for u in urls]
+
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            jobs = parse_rss(resp.text, "Indeed")
+            if jobs:
+                print(f"  Indeed: ✓ 获取 {len(jobs)} 个岗位")
+                return jobs
+        except requests.RequestException:
+            continue
+    print(f"  Indeed: ✗ 不可用（Cloudflare 防护）")
+    return []
 
 
 def fetch_remoteok(keywords: list[str], limit: int = 25) -> list[Job]:
-    """从 RemoteOK API 拉取远程岗位"""
+    """从 RemoteOK API 拉取远程技术岗位"""
     url = "https://remoteok.com/api"
-    print(f"  RemoteOK: {url}")
     try:
         resp = requests.get(url, timeout=30, headers={
             "User-Agent": "Mozilla/5.0",
@@ -136,19 +155,20 @@ def fetch_remoteok(keywords: list[str], limit: int = 25) -> list[Job]:
         })
         resp.raise_for_status()
         data = resp.json()
-        # data[0] 通常是广告横幅，跳过
         raw_jobs = data[1:] if isinstance(data, list) and len(data) > 0 else []
 
         jobs = []
-        kw_lower = [k.lower() for k in keywords]
         for item in raw_jobs[:limit]:
             title = item.get("position", "") or ""
             desc = item.get("description", "") or ""
-            tags = [t.get("text", "") for t in item.get("tags", [])]
-            combined = (title + " " + desc + " " + " ".join(tags)).lower()
+            raw_tags = item.get("tags", [])
+            if raw_tags and isinstance(raw_tags[0], str):
+                tags = raw_tags
+            else:
+                tags = [t.get("text", "") for t in raw_tags if isinstance(t, dict)]
+            combined = f"{title} {desc} {' '.join(tags)}"
 
-            # 关键词过滤
-            if kw_lower and not any(kw in combined for kw in kw_lower):
+            if not _matches_keywords(combined, keywords):
                 continue
 
             job = Job(
@@ -158,16 +178,69 @@ def fetch_remoteok(keywords: list[str], limit: int = 25) -> list[Job]:
                 url=item.get("url", "") or "",
                 source="RemoteOK",
                 date=item.get("date", "") or "",
-                summary=_clean_html(desc[:200]),
+                summary=_clean_html(desc[:150]),
             )
             if job.title and job.url:
                 jobs.append(job)
 
-        print(f"  ✓ 获取 {len(jobs)} 个岗位")
+        print(f"  RemoteOK: ✓ 获取 {len(jobs)} 个岗位")
         return jobs
     except (requests.RequestException, json.JSONDecodeError) as e:
-        print(f"  ✗ RemoteOK 请求失败: {e}")
+        print(f"  RemoteOK: ✗ 请求失败: {e}")
         return []
+
+
+def fetch_jobicy(keywords: list[str], limit: int = 25) -> list[Job]:
+    """从 Jobicy API 拉取远程岗位（免费、无需 Key）"""
+    tags = ["backend", "frontend", "fullstack", "devops", "engineering"]
+    jobs = []
+    seen_ids = set()
+
+    for tag in tags:
+        url = f"https://jobicy.com/api/v2/remote-jobs?count={limit}&tag={tag}"
+        try:
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("jobs", []):
+                jid = item.get("id")
+                if jid in seen_ids:
+                    continue
+                seen_ids.add(jid)
+                title = item.get("jobTitle", "") or ""
+                desc = item.get("jobDescription", "") or ""
+                excerpt = item.get("jobExcerpt", "") or ""
+                combined = f"{title} {excerpt} {desc[:500]}"
+
+                if not _matches_keywords(combined, keywords):
+                    continue
+
+                job = Job(
+                    title=title,
+                    company=item.get("companyName", "") or "",
+                    location=item.get("jobGeo", "Remote") or "Remote",
+                    url=item.get("url", "") or "",
+                    source="Jobicy",
+                    date=item.get("pubDate", "") or "",
+                    summary=_clean_html(excerpt[:200]),
+                )
+                if job.title and job.url:
+                    jobs.append(job)
+        except (requests.RequestException, json.JSONDecodeError, KeyError) as e:
+            print(f"  Jobicy({tag}): ✗ {e}")
+            continue
+
+    # 去重
+    seen = set()
+    unique = []
+    for j in jobs:
+        fp = j.fingerprint
+        if fp not in seen:
+            seen.add(fp)
+            unique.append(j)
+
+    print(f"  Jobicy: ✓ 获取 {len(unique)} 个岗位")
+    return unique
 
 
 # ════════════════════════════════════════════════════════════════
@@ -269,15 +342,20 @@ def main():
     all_jobs: list[Job] = []
     sources = config.get("sources", {})
 
-    if sources.get("indeed", True):
-        print("[1/2] 正在搜索 Indeed...")
-        indeed_jobs = fetch_indeed(keywords, location, max_results)
-        all_jobs.extend(indeed_jobs)
-
-    if sources.get("remoteok", True):
-        print("[2/2] 正在搜索 RemoteOK...")
-        remote_jobs = fetch_remoteok(keywords, max_results)
-        all_jobs.extend(remote_jobs)
+    source_fns = [
+        ("Indeed", lambda: fetch_indeed(keywords, location, max_results)),
+        ("RemoteOK", lambda: fetch_remoteok(keywords, max_results)),
+        ("Jobicy", lambda: fetch_jobicy(keywords, max_results)),
+    ]
+    total = sum(1 for name, _ in source_fns if sources.get(name.lower(), True))
+    idx = 0
+    for name, fn in source_fns:
+        if not sources.get(name.lower(), True):
+            continue
+        idx += 1
+        print(f"[{idx}/{total}] 正在搜索 {name}...")
+        jobs = fn()
+        all_jobs.extend(jobs)
 
     # 去重
     seen = set()
