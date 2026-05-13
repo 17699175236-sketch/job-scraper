@@ -1,21 +1,24 @@
 # ─── 求职搜索配置 ─────────────────────────────────────────────
 # 按需修改以下参数，改完后提交推送即可生效
 
-# 搜索关键词（支持多个，用 OR 连接）
+# 搜索关键词（支持多个，用 OR 连接，中英文均可）
 keywords:
-  - "software engineer"
-  - "backend engineer"
-  - "full stack developer"
+  - "视频编导"
+  - "视频创作"
+  - "视频制作"
+  - "视频编辑"
+  - "video editor"
+  - "video producer"
+  - "video director"
 
 # 地点（留空表示不限）
-location: ""
+location: "中国"
 
 # 数据源开关
 sources:
-  indeed: true       # Indeed RSS（可能被 Cloudflare 拦截，GHA 环境下可能可行）
-  remoteok: true     # RemoteOK API（专注远程技术岗）
-  jobicy: true       # Jobicy API（远程岗位聚合，免费）
-  # 未来可扩展更多来源
+  indeed: true       # Indeed RSS（可能被 Cloudflare 拦截）
+  remoteok: true     # RemoteOK API（远程技术岗位）
+  jobicy: true       # Jobicy API（远程岗位聚合）
 
 # 每个来源最多拉取条数
 max_results_per_source: 25
