@@ -1,0 +1,23 @@
+# ─── 求职搜索配置 ─────────────────────────────────────────────
+# 按需修改以下参数，改完后提交推送即可生效
+
+# 搜索关键词（支持多个，用 OR 连接）
+keywords:
+  - "software engineer"
+  - "backend engineer"
+  - "full stack developer"
+
+# 地点（留空表示不限）
+location: ""
+
+# 数据源开关
+sources:
+  indeed: true       # Indeed RSS（全球覆盖广，无需 API Key）
+  remoteok: true     # RemoteOK（专注远程技术岗）
+  # 未来可扩展更多来源
+
+# 每个来源最多拉取条数
+max_results_per_source: 25
+
+# 日期格式
+date_format: "Asia/Shanghai"
